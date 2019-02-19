@@ -71,6 +71,13 @@ group(:travis) do
   gem "travis"
 end
 
+# gem "chef_core", git: "https://github.com/chef/chef_core", branch: "chef-core-split"
+# gem "chef_core-actions", git: "https://github.com/chef/chef_core-actions", branch: "chef-core-split"
+# gem "chef_core-cliux", git: "https://github.com/chef/chef_core-cliux", branch: "chef-core-split"
+# Temporary for testing:
+gem "chef_core", path: "../chef_core"
+gem "chef_core-actions", path: "../chef_core-actions"
+gem "chef_core-cliux", path: "../chef_core-cliux"
 instance_eval(ENV["GEMFILE_MOD"]) if ENV["GEMFILE_MOD"]
 
 # If you want to load debugging tools into the bundle exec sandbox,

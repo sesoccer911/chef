@@ -17,6 +17,10 @@ Gem::Specification.new do |s|
 
   s.add_dependency "chef-config", "= #{Chef::VERSION}"
 
+  s.add_dependency "chef_core"
+  s.add_dependency "chef_core-actions"
+  s.add_dependency "chef_core-cliux"
+
   s.add_dependency "mixlib-cli", "~> 1.7"
   s.add_dependency "mixlib-log", "~> 2.0", ">= 2.0.3"
   s.add_dependency "mixlib-authentication", "~> 2.1"
@@ -58,5 +62,10 @@ Gem::Specification.new do |s|
   s.executables  = %w{ chef-client chef-solo knife chef-shell chef-apply chef-resource-inspector }
 
   s.require_paths = %w{ lib }
-  s.files = %w{Gemfile Rakefile LICENSE README.md} + Dir.glob("{lib,tasks,spec}/**/*", File::FNM_DOTMATCH).reject { |f| File.directory?(f) } + Dir.glob("*.gemspec")
+  s.files = %w{Gemfile Rakefile LICENSE README.md} +
+    Dir.glob("{lib,i18n,tasks,spec}/**/*", File::FNM_DOTMATCH).reject { |f| File.directory?(f) } +
+    Dir.glob("*.gemspec")
+
+
+
 end
