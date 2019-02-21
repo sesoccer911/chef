@@ -16,7 +16,6 @@
 #
 
 require "chef/data_collector/message_helpers"
-require "chef/data_collector/node_uuid"
 
 class Chef
   class DataCollector
@@ -37,7 +36,7 @@ class Chef
           node = data_collector.node
           {
             "chef_server_fqdn" => chef_server_fqdn,
-            "entity_uuid" => Chef::DataCollector::NodeUUID.node_uuid(node),
+            "entity_uuid" => Chef::Config[:chef_guid],
             "id" => run_status&.run_id,
             "message_version" => "1.0.0",
             "message_type" => "run_start",

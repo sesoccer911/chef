@@ -19,6 +19,7 @@
 #
 
 require "forwardable"
+require "securerandom"
 require "chef/config"
 require "chef/nil_argument"
 require "chef/mixin/params_validate"
@@ -338,6 +339,7 @@ class Chef
       logger.debug("Platform is #{platform} version #{version}")
       automatic[:platform] = platform
       automatic[:platform_version] = version
+      automatic[:chef_guid] = Chef::Config[:chef_guid] || ( Chef::Config[:chef_guid] = node_uuid )
       automatic[:name] = name
       automatic[:chef_environment] = chef_environment
     end
@@ -684,6 +686,21 @@ class Chef
         end
       end
       data
+    end
+
+    # Returns a UUID that uniquely identifies this node for reporting reasons.
+    #
+    # The node is read in from disk if it exists, or it's generated if it does
+    # does not exist.
+    #
+    # @return [String] UUID for the node
+    #
+    def node_uuid
+      unless File.exists?(Chef::Config[:chef_guid_path])
+        File.write(Chef::Config[:chef_guid_path], SecureRandom.uuid)
+      end
+
+      File.open(Chef::Config[:chef_guid_path]).first.chomp
     end
 
   end

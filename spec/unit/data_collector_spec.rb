@@ -84,13 +84,13 @@ describe Chef::DataCollector do
     events.register(data_collector)
     events.register(action_collection)
     events.run_start(Chef::VERSION, run_status)
+    Chef::Config[:chef_guid] = node_uuid
     # we're guaranteed that those events are processed or else the data collector has no hope
     # all other events could see the chef-client crash before executing them and the data collector
     # still needs to work in those cases, so must come later, and the failure cases must be tested.
   end
 
   def expect_start_message
-    expect(Chef::DataCollector::NodeUUID).to receive(:node_uuid).at_least(:once).and_return(node_uuid)
     expect(rest_client).to receive(:post).with(
       nil,
       {

@@ -22,7 +22,6 @@ require "chef/server_api"
 require "chef/http/simple_json"
 require "chef/event_dispatch/base"
 require "set"
-require "chef/data_collector/node_uuid"
 require "chef/data_collector/run_end_message"
 require "chef/data_collector/run_start_message"
 require "chef/data_collector/config_validation"
@@ -30,68 +29,89 @@ require "chef/data_collector/error_handlers"
 
 class Chef
   class DataCollector
-
-    # == Chef::DataCollector::Reporter
-    # Provides an event handler that can be registered to report on Chef
-    # run data. Unlike the existing Chef::ResourceReporter event handler,
-    # the DataCollector handler is not tied to a Chef Server / Chef Reporting
-    # and exports its data through a webhook-like mechanism to a configured
-    # endpoint.
+    # The DataCollector is mode-agnostic reporting tool which can be used with
+    # server-based and solo-based clients.  It can report to a file, to an
+    # authenticated Chef Automate reporting endpoint, or to a user-supplied
+    # webhook.  It sends two messages:  one at the start of the run and one
+    # at the end of the run.  Most early failures in the actual Chef::Client itself
+    # are reported, but parsing of the client.rb must have succeeded and some code
+    # in Chef::Application could throw so early as to prevent reporting.  If
+    # exceptions are thrown both run-start and run-end messages are still sent in
+    # pairs.
     #
     class Reporter < EventDispatch::Base
       include Chef::DataCollector::ErrorHandlers
 
-      # handle to the expanded_run_list for messages
+      # @return [Chef::RunList::RunListExpansion] the expanded run list
       attr_reader :expanded_run_list
 
-      # handle to the run_status for messages
+      # @return [Chef::RunStatus] the run status
       attr_reader :run_status
 
-      # handle to the node object
+      # @return [Chef::Node] the chef node
       attr_reader :node
 
-      # accumulated list of deprecations
+      # @return [Set<Hash>] the acculumated list of deprecation warnings
       attr_reader :deprecations
 
-      # handle to the action_collection to gather resources from
+      # @return [Chef::ActionCollection] the action collection object
       attr_reader :action_collection
 
-      # handle to the events object so we can deregister
+      # @return [Chef::EventDispatch::Dispatcher] the event dispatcher
       attr_reader :events
 
+      # @param events [Chef::EventDispatch::Dispatcher] the event dispatcher
       def initialize(events)
         @events = events
         @expanded_run_list       = {}
         @deprecations            = Set.new
       end
 
+      # Hook to grab the run_status.  We also make the decision to run or not run here (our
+      # config has been parsed so we should know if we need to run, we unregister if we do
+      # not want to run).
+      #
+      # (see EventDispatch::Base#run_start)
+      #
       def run_start(chef_version, run_status)
         events.unregister(self) unless should_be_enabled?
         @run_status = run_status
       end
 
+      # Hook to grab the node object after it has been successfully loaded
+      #
+      # (see EventDispatch::Base#node_load_success)
+      #
       def node_load_success(node)
         @node = node
       end
 
+      # The expanded run list is stored for later use by the run_completed
+      # event and message.
+      #
+      # (see EventDispatch::Base#run_list_expanded)
+      #
+      def run_list_expanded(run_list_expansion)
+        @expanded_run_list = run_list_expansion
+      end
+
+      # Hook event to register with the action_collection if we are still enabled
+      #
+      # (see EventDispatch::Base#action_collection_registration)
+      #
       def action_collection_registration(action_collection)
         @action_collection = action_collection
         action_collection.register(self)
       end
 
-      # Upon receipt, we will send our run start message to the
-      # configured DataCollector endpoint. Depending on whether
-      # the user has configured raise_on_failure, if we cannot
-      # send the message, we will either disable the DataCollector
-      # Reporter for the duration of this run, or we'll raise an
-      # exception.
+      # - Creates and writes our NodeUUID back to the node object
+      # - Sanity checks the data collector
+      # - Sends the run start message
+      # - If the run_start message fails, this may disable the rest of data collection or fail hard
       #
-      # see EventDispatch::Base#run_started
+      # (see EventDispatch::Base#run_started)
       #
       def run_started(run_status)
-        # publish our node_uuid back to the node data object
-        run_status.node.automatic[:chef_guid] = Chef::DataCollector::NodeUUID.node_uuid(run_status.node)
-
         # do sanity checks
         Chef::DataCollector::ConfigValidation.validate_server_url!
         Chef::DataCollector::ConfigValidation.validate_output_locations!
@@ -99,36 +119,28 @@ class Chef
         send_run_start
       end
 
-      # Append a received deprecation to the list of deprecations
+      # Hook event to accumulating deprecation messages
       #
-      # see EventDispatch::Base#deprecation
+      # (see EventDispatch::Base#deprecation)
       #
       def deprecation(message, location = caller(2..2)[0])
         @deprecations << { message: message.message, url: message.url, location: message.location }
       end
 
-      # Upon receipt, we will send our run completion message to the
-      # configured DataCollector endpoint.
+      # Hook to send the run completion message with a status of success
       #
-      # see EventDispatch::Base#run_completed
+      # (see EventDispatch::Base#run_completed)
       #
       def run_completed(node)
         send_run_completion("success")
       end
 
-      # see EventDispatch::Base#run_failed
+      # Hook to send the run completion message with a status of failed
+      #
+      # (see EventDispatch::Base#run_failed)
       #
       def run_failed(exception)
         send_run_completion("failure")
-      end
-
-      # The expanded run list is stored for later use by the run_completed
-      # event and message.
-      #
-      # see EventDispatch::Base#run_list_expanded
-      #
-      def run_list_expanded(run_list_expansion)
-        @expanded_run_list = run_list_expansion
       end
 
       private

@@ -15,8 +15,10 @@
 # limitations under the License.
 #
 
+require "securerandom"
+
 class Chef
-  class DataCollector
+  class Node
     module NodeUUID
       class << self
         #
@@ -27,36 +29,12 @@ class Chef
         #
         # @return [String] UUID for the node
         #
-        def node_uuid(node)
-          Chef::Config[:chef_guid] ||= read_node_uuid || generate_node_uuid(node)
-        end
-
-        private
-
-        #
-        # Generates a UUID for the node via SecureRandom.uuid and writes out
-        # metadata file so the UUID persists between runs.
-        #
-        # @return [String] UUID for the node
-        #
-        def generate_node_uuid(node)
-          uuid = node[:chef_guid] || SecureRandom.uuid
-          File.open(Chef::Config[:chef_guid_path], "w+") do |fh|
-            fh.write(uuid)
+        def node_uuid
+          unless File.exists?(Chef::Config[:chef_guid_path])
+            File.write(Chef::Config[:chef_guid_path], SecureRandom.uuid)
           end
 
-          uuid
-        end
-
-        #
-        # Reads in the node UUID from the node metadata file
-        #
-        # @return [String] UUID for the node
-        #
-        def read_node_uuid
-          if File.exists?(Chef::Config[:chef_guid_path])
-            File.read(Chef::Config[:chef_guid_path])
-          end
+          File.open(Chef::Config[:chef_guid_path]).first.chomp
         end
       end
     end
