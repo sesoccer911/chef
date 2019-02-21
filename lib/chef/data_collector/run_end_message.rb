@@ -84,7 +84,7 @@ class Chef
         # get only the top level resources and strip out the subcollections
         def action_records(action_collection)
           return [] if action_collection.nil?
-          action_collection.updated_resources
+          action_collection.action_records
         end
 
         def all_resource_reports(action_collection)

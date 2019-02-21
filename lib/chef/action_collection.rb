@@ -21,7 +21,7 @@ class Chef
   class ActionCollection < EventDispatch::Base
     include Enumerable
 
-    class ActionReport
+    class ActionRecord
 
       # The "new_resource" or declared state that we (ab)use for the after-state since
       # we have no explicit after_resource.  XXX: this object may be mutated by the
@@ -76,7 +76,7 @@ class Chef
       end
     end
 
-    attr_reader :updated_resources # FIXME: rename "action_records"
+    attr_reader :action_records
     attr_reader :total_res_count
     attr_reader :pending_updates
     attr_reader :pending_update
@@ -87,7 +87,7 @@ class Chef
     attr_reader :events
 
     def initialize(events)
-      @updated_resources  = []
+      @action_records = []
       @total_res_count    = 0
       @pending_updates    = []
       @consumers          = []
@@ -95,13 +95,13 @@ class Chef
     end
 
     def each(&block)
-      updated_resources.each(&block)
+      action_records.each(&block)
     end
 
-    # allows getting at the updated_resources collection filtered by nesting level and status
+    # allows getting at the action_records collection filtered by nesting level and status
     #
     def filtered_collection(max_nesting: nil, up_to_date: true, skipped: true, updated: true, failed: true, unprocessed: true)
-      updated_resources.select do |rec|
+      action_records.select do |rec|
         ( max_nesting.nil? || rec.nesting_level <= max_nesting ) &&
           ( rec.status == :up_to_date && up_to_date ||
             rec.status == :skipped && skipped ||
@@ -117,9 +117,7 @@ class Chef
 
     def cookbook_compilation_start(run_context)
       run_context.action_collection = self
-      # we fire the action_collection_registration event during the cookbook_compilation_start hook -- the magic of stack
-      # frames means this should just work.  but maybe we need a way to schedule an event on the dispatcher to run
-      # after the current one has completed?
+      # fire the action_colleciton_registration hook after cookbook_compilation_start -- last chance for consumers to register
       run_context.events.enqueue(:action_collection_registration, self)
       @run_context = run_context
     end
@@ -143,7 +141,7 @@ class Chef
 
     def resource_action_start(new_resource, action, notification_type = nil, notifier = nil)
       return if consumers.empty?
-      pending_updates << ActionReport.new(new_resource, action, pending_updates.length)
+      pending_updates << ActionRecord.new(new_resource, action, pending_updates.length)
     end
 
     def resource_current_state_loaded(new_resource, action, current_resource)
@@ -192,7 +190,7 @@ class Chef
         current_record.new_resource = klass.new(resource_name)
       end
 
-      updated_resources << pending_updates.pop
+      action_records << pending_updates.pop
     end
 
     private
@@ -210,9 +208,9 @@ class Chef
     def detect_unprocessed_resources
       run_context.resource_collection.all_resources.select { |resource| resource.executed_by_runner == false }.each do |resource|
         Array(resource.action).each do |action|
-          record = ActionReport.new(resource, action, 0)
+          record = ActionRecord.new(resource, action, 0)
           record.status = :unprocessed
-          updated_resources << record
+          action_records << record
         end
       end
     end
