@@ -17,10 +17,21 @@
 
 class Chef
   class DataCollector
+
+    # This module isolates the handling of collecting error descriptions to insert into the data_colletor
+    # report output.  For very early errors it is repsonsible for collecting the node_name for the report
+    # to use.  For all failure conditions that have an ErrorMapper it collects the output.
+    #
+    # No external code should call anything in this module directly.
+    #
+    # @api private
+    #
     module ErrorHandlers
 
       # @return [String] the fallback node name if we do NOT have a node due to early failures
       attr_reader :node_name
+
+      private
 
       # @return [Hash] JSON-formatted error description from the Chef::Formatters::ErrorMapper
       def error_description
