@@ -18,7 +18,7 @@ Gem::Specification.new do |s|
   s.add_dependency "chef-config", "= #{Chef::VERSION}"
 
   s.add_dependency "chef_core"
-  s.add_dependency "chef_core-actions"
+  s.add_dependency "chef_core-actions" # Predefined actions such as ConvergeTarget and InstallChef
   s.add_dependency "chef_core-cliux"
 
   s.add_dependency "mixlib-cli", "~> 1.7"

@@ -71,6 +71,7 @@ group(:travis) do
   gem "travis"
 end
 
+# The chef_core gems are sourced from git.
 # gem "chef_core", git: "https://github.com/chef/chef_core", branch: "chef-core-split"
 # gem "chef_core-actions", git: "https://github.com/chef/chef_core-actions", branch: "chef-core-split"
 # gem "chef_core-cliux", git: "https://github.com/chef/chef_core-cliux", branch: "chef-core-split"
