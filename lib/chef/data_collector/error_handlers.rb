@@ -31,8 +31,6 @@ class Chef
       # @return [String] the fallback node name if we do NOT have a node due to early failures
       attr_reader :node_name
 
-      private
-
       # @return [Hash] JSON-formatted error description from the Chef::Formatters::ErrorMapper
       def error_description
         @error_description ||= {}

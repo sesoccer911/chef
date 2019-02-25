@@ -37,45 +37,24 @@ class Chef
         end
       end
 
-      #
-      # The organization name the node is associated with. For Chef Solo runs, a
-      # user-configured organization string is returned, or the string "chef_solo"
-      # if such a string is not configured.
+      # The organization name the node is associated with. For Chef Solo runs the default
+      # is "chef_solo" which can be overridden by the user.
       #
       # @return [String] Organization to which the node is associated
       #
       def organization
-        solo_run? ? data_collector_organization : chef_server_organization
+        if solo_run?
+          # configurable fake organization name for chef-solo users
+          Chef::Config[:data_collector][:organization]
+        else
+          if Chef::Config[:chef_server_url]
+            Chef::Config[:chef_server_url].match(%r{/+organizations/+([a-z0-9][a-z0-9_-]{0,254})}).nil? ? "unknown_organization" : $1
+          else
+            "unknown_organization"
+          end
+        end
       end
 
-      #
-      # Returns the user-configured organization, or "chef_solo" if none is configured.
-      #
-      # This is only used when Chef is run in Solo mode.
-      #
-      # @return [String] Data-collector-specific organization used when running in Chef Solo
-      #
-      def data_collector_organization
-        Chef::Config[:data_collector][:organization] || "chef_solo"
-      end
-
-      #
-      # Return the organization assumed by the configured chef_server_url.
-      #
-      # We must parse this from the Chef::Config[:chef_server_url] because a node
-      # has no knowledge of an organization or to which organization is belongs.
-      #
-      # If we cannot determine the organization, we return "unknown_organization"
-      #
-      # @return [String] shortname of the Chef Server organization
-      #
-      def chef_server_organization
-        return "unknown_organization" unless Chef::Config[:chef_server_url]
-
-        Chef::Config[:chef_server_url].match(%r{/+organizations/+([a-z0-9][a-z0-9_-]{0,254})}).nil? ? "unknown_organization" : $1
-      end
-
-      #
       # The source of the data collecting during this run, used by the
       # DataCollector endpoint to determine if Chef was in Solo mode or not.
       #
@@ -85,22 +64,10 @@ class Chef
         solo_run? ? "chef_solo" : "chef_client"
       end
 
-      #
-      # If we're running in Solo (legacy) mode, or in Solo (formerly
-      # "Chef Client Local Mode"), we're considered to be in a "solo run".
-      #
-      # @return [Boolean] Whether we're in a solo run or not
+      # @return [Boolean] True if we're in a chef-solo/chef-zero or legacy chef-solo run
       #
       def solo_run?
         Chef::Config[:solo] || Chef::Config[:local_mode]
-      end
-
-      def start_time(run_status)
-        run_status.start_time.utc.iso8601
-      end
-
-      def end_time(run_status)
-        run_status.end_time.utc.iso8601
       end
     end
   end
