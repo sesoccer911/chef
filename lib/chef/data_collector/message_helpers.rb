@@ -17,10 +17,16 @@
 
 class Chef
   class DataCollector
+
+    # This is for shared code between the run_start_message and run_end_message modules.
+    #
+    # No external code should call this module directly
+    #
+    # @api private
+    #
     module MessageHelpers
       private
 
-      #
       # Fully-qualified domain name of the Chef Server configured in Chef::Config
       # If the chef_server_url cannot be parsed as a URI, the node["fqdn"] attribute
       # will be returned, or "localhost" if the run_status is unavailable to us.
@@ -40,7 +46,7 @@ class Chef
       # The organization name the node is associated with. For Chef Solo runs the default
       # is "chef_solo" which can be overridden by the user.
       #
-      # @return [String] Organization to which the node is associated
+      # @return [String] Chef organization associated with the node
       #
       def organization
         if solo_run?
@@ -65,7 +71,6 @@ class Chef
       end
 
       # @return [Boolean] True if we're in a chef-solo/chef-zero or legacy chef-solo run
-      #
       def solo_run?
         Chef::Config[:solo] || Chef::Config[:local_mode]
       end
