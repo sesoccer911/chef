@@ -22,12 +22,19 @@ class Chef
     module RunStartMessage
       extend Chef::DataCollector::MessageHelpers
 
+      # This module encapsulates rendering the run_start_message given the state gathered in the data_collector.
+      # It is deliberately a stateless module and is deliberately not mixed into the data_collector and only
+      # uses the public api methods of the data_collector.
+      #
+      # No external code should call this module directly.
+      #
+      # @api private
       class << self
-        #
-        # Message payload that is sent to the DataCollector server at the
+
+        # Construct the message payload that is sent to the DataCollector server at the
         # start of a Chef run.
         #
-        # @param run_status [Chef::RunStatus] The RunStatus instance for this node/run.
+        # @param data_collector [Chef::DataCollector::Reporter] the calling data_collector instance
         #
         # @return [Hash] A hash containing the run start message data.
         #

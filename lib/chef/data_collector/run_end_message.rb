@@ -22,12 +22,20 @@ class Chef
     module RunEndMessage
       extend Chef::DataCollector::MessageHelpers
 
+      # This module encapsulates rendering the run_end_message given the state gathered in the data_collector
+      # and the action_collection.  It is deliberately a stateless module and is deliberately not mixed into
+      # the data_collector and only uses the public api methods of the data_collector and action_collection.
+      #
+      # No external code should call this module directly.
+      #
+      # @api private
       class << self
-        #
-        # Message payload that is sent to the DataCollector server at the
+
+        # Construct the message payload that is sent to the DataCollector server at the
         # end of a Chef run.
         #
-        # @param reporter_data [Hash] Data supplied by the Reporter, such as run_status, resource counts, etc.
+        # @param data_collector [Chef::DataCollector::Reporter] the calling data_collector instance
+        # @param status [String] the overall status of the run, either "success" or "failure"
         #
         # @return [Hash] A hash containing the run end message data.
         #
@@ -46,7 +54,7 @@ class Chef
             "node" => node || {},
             "node_name" => node&.name || data_collector.node_name,
             "organization_name" => organization,
-            "resources" => all_resource_reports(action_collection),
+            "resources" => all_action_records(action_collection),
             "run_id" => run_status&.run_id,
             "run_list" => node&.run_list&.for_json || [],
             "policy_name" => node&.policy_name,
@@ -55,7 +63,7 @@ class Chef
             "end_time" => run_status.end_time.utc.iso8601,
             "source" => collector_source,
             "status" => status,
-            "total_resource_count" => all_resource_reports(action_collection).count,
+            "total_resource_count" => all_action_records(action_collection).count,
             "updated_resource_count" => updated_resource_count(action_collection),
             "deprecations" => data_collector.deprecations.to_a,
           }
@@ -74,22 +82,24 @@ class Chef
 
         private
 
-        # strip out everything other than top-level updated resources and count them
+        # @return [Integer] the number of resources successfully updated in the chef-client run
         def updated_resource_count(action_collection)
           return 0 if action_collection.nil?
           action_collection.filtered_collection(up_to_date: false, skipped: false, unprocessed: false, failed: false).size
         end
 
-        # get only the top level resources and strip out the subcollections
+        # @return [Array<Chef::ActionCollection::ActionRecord>] list of all action_records for all resources
         def action_records(action_collection)
           return [] if action_collection.nil?
           action_collection.action_records
         end
 
-        def all_resource_reports(action_collection)
+        # @return [Array<Hash>] list of all action_records rendered as a Hash for sending to JSON
+        def all_action_records(action_collection)
           action_records(action_collection).map { |rec| action_record_for_json(rec) }
         end
 
+        # @return [Hash] the Hash representation of the action_record for sending as JSON
         def action_record_for_json(action_record)
           new_resource = action_record.new_resource
           current_resource = action_record.current_resource
@@ -119,9 +129,11 @@ class Chef
           hash
         end
 
-        # If the identity property has been lazied (via a lazy name resource) evaluating it
+        # If the identity property of a resource has been lazied (via a lazy name resource) evaluating it
         # for an unprocessed resource (where the preconditions have not been met) may cause the lazy
         # evaluator to throw -- and would otherwise crash the data collector.
+        #
+        # @return [String] the resource's identity property
         #
         def safe_resource_identity(new_resource)
           new_resource.identity.to_s
@@ -129,18 +141,28 @@ class Chef
           "unknown identity (due to #{e.class})"
         end
 
+        # FIXME: This is likely necessary due to the same lazy issue with properties and failing resources?
+        #
+        # @return [Hash] the resource's reported state properties
+        #
         def safe_state_for_resource_reporter(resource)
           resource ? resource.state_for_resource_reporter : {}
         rescue
           {}
         end
 
+        # Helper to convert action record status (symbols) to strings for the Data Collector server.
+        # Does a bit of necessary underscores-to-dashes conversion to comply with the Data Collector API.
+        #
+        # @return [String] resource status (
+        #
         def action_record_status_for_json(action_record)
           action = action_record.status.to_s
           action = "up-to-date" if action == "up_to_date"
           action
         end
 
+        # @return [Boolean] True if the resource was updated or failed
         def updated_or_failed?(action_record)
           action_record.status == :updated || action_record.status == :failed
         end
