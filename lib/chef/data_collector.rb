@@ -145,26 +145,15 @@ class Chef
 
       private
 
-      # Selects the type of HTTP client to use based on whether we are using
-      # token-based or signed header authentication. Token authentication is
-      # intended to be used primarily for Chef Solo in which case no signing
-      # key will be available (in which case `Chef::ServerAPI.new()` would
-      # raise an exception.
-      # FIXME: rename to "http_client"
-      def http
-        @http ||= setup_http_client(Chef::Config[:data_collector][:server_url])
-      end
-
-      # FIXME: rename to "http_clients_for_output_locations" or something
-      def http_output_locations
-        @http_output_locations ||=
-          begin
-            Chef::Config[:data_collector][:output_locations][:urls].each_with_object({}) do |location_url, http_output_locations|
-              http_output_locations[location_url] = setup_http_client(location_url)
-            end
-          end
-      end
-
+      # Construct a http client for either the main data collector or for the http output_locations.
+      #
+      # Note that based on the token setting either the main data collector and all the http output_locations
+      # are going to all require chef-server authentication or not.  There is no facility to mix-and-match on
+      # a per-url basis.
+      #
+      # @param url [String] the string url to connect to
+      # @returns [Chef::HTTP] the appropriate Chef::HTTP subclass instance to use
+      #
       def setup_http_client(url)
         if Chef::Config[:data_collector][:token].nil?
           Chef::ServerAPI.new(url, validate_utf8: false)
@@ -173,8 +162,18 @@ class Chef
         end
       end
 
+      # Handle POST'ing data to the data collector.  Note that this is a totally separate concern
+      # from the array of URI's in the extra configured output_locations.
+      #
+      # On failure this will unregister the data collector (if there are no other configured output_locations)
+      # and optionally will either silently continue or fail hard depending on configuration.
+      #
+      # @param message [Hash] message to send
+      #
       def send_to_data_collector(message)
-        http.post(nil, message, headers) if Chef::Config[:data_collector][:server_url]
+        return unless Chef::Config[:data_collector][:server_url]
+        @http ||= setup_http_client(Chef::Config[:data_collector][:server_url])
+        @http.post(nil, message, headers)
       rescue Timeout::Error, Errno::EINVAL, Errno::ECONNRESET,
         Errno::ECONNREFUSED, EOFError, Net::HTTPBadResponse,
         Net::HTTPHeaderSyntaxError, Net::ProtocolError, OpenSSL::SSL::SSLError,
@@ -182,15 +181,9 @@ class Chef
         # Do not disable data collector reporter if additional output_locations have been specified
         events.unregister(self) unless Chef::Config[:data_collector][:output_locations]
 
-        code = if e.respond_to?(:response) && e.response.code
-                 e.response.code.to_s
-               else
-                 "Exception Code Empty"
-               end
+        code = e&.response&.code&.to_s || "Exception Code Empty"
 
-        msg = "Error while reporting run start to Data Collector. " \
-          "URL: #{Chef::Config[:data_collector][:server_url]} " \
-          "Exception: #{code} -- #{e.message} "
+        msg = "Error while reporting run start to Data Collector. URL: #{Chef::Config[:data_collector][:server_url]} Exception: #{code} -- #{e.message} "
 
         if Chef::Config[:data_collector][:raise_on_failure]
           Chef::Log.error(msg)
@@ -202,6 +195,10 @@ class Chef
         end
       end
 
+      # Process sending the configured message to all the extra output locations.
+      #
+      # @param message [Hash] message to send
+      #
       def send_to_output_locations(message)
         return unless Chef::Config[:data_collector][:output_locations]
 
@@ -213,23 +210,38 @@ class Chef
         end
       end
 
+      # Sends a single message to a file, rendered as JSON.
+      #
+      # @param file_name [String] the file to write to
+      # @param message [Hash] the message to render as JSON
+      #
       def send_to_file_location(file_name, message)
         File.open(file_name, "a") do |fh|
           fh.puts Chef::JSONCompat.to_json(message)
         end
       end
 
+      # Sends a single message to a http uri, rendered as JSON.  Maintains a cache of Chef::HTTP
+      # objects to use on subsequent requests.
+      #
+      # @param http_url [String] the configured http uri string endpoint to send to
+      # @param message [Hash] the message to render as JSON
+      #
       def send_to_http_location(http_url, message)
-        @http_output_locations[http_url].post(nil, message, headers) if @http_output_locations[http_url]
+        @http_output_locations_clients[http_url] ||= setup_http_client(http_url)
+        @http_output_locations_clients[http_url].post(nil, message, headers)
       rescue
         # FIXME: this feels like poor behavior on several different levels, at least its a warn now...
         Chef::Log.warn("Data collector failed to send to URL location #{http_url}. Please check your configured data_collector.output_locations")
       end
 
+      # @return [Boolean] if we've sent a run_start message yet
       def sent_run_start?
         !!@sent_run_start
       end
 
+      # Send the run start message to the configured server or output locations
+      #
       def send_run_start
         message = Chef::DataCollector::RunStartMessage.construct_message(self)
         send_to_data_collector(message)
@@ -237,18 +249,13 @@ class Chef
         @sent_run_start = true
       end
 
+      # Send the run completion message to the configured server or output locations
       #
-      # Send any messages to the DataCollector endpoint that are necessary to
-      # indicate the run has completed. Currently, two messages are sent:
-      #
-      # - An "action" message with the node object indicating it's been updated
-      # - An "run_converge" (i.e. RunEnd) message with details about the run,
-      #   what resources were modified/up-to-date/skipped, etc.
-      #
-      # @param opts [Hash] Additional details about the run, such as its success/failure.
+      # @param status [String] Either "success" or "failed"
       #
       def send_run_completion(status)
-        # this is necessary to send a run_start message when we fail before the run_started chef event
+        # this is necessary to send a run_start message when we fail before the run_started chef event.
+        # we adhere to a contract that run_start + run_completion events happen in pairs.
         send_run_start unless sent_run_start?
 
         message = Chef::DataCollector::RunEndMessage.construct_message(self, status)
@@ -256,6 +263,7 @@ class Chef
         send_to_output_locations(message)
       end
 
+      # @return [Hash] HTTP headers for the data collector endpoint
       def headers
         headers = { "Content-Type" => "application/json" }
 
@@ -267,13 +275,16 @@ class Chef
         headers
       end
 
-      # Whether or not to enable data collection:
-      # * always disabled for why run mode
-      # * disabled when the user sets `Chef::Config[:data_collector][:mode]` to a
-      #   value that excludes the mode (client or solo) that we are running as
+      # Main logic controlling the data collector being enabled or disabled:
+      #
+      # * disabled in why-run mode
+      # * disabled when `Chef::Config[:data_collector][:mode]` excludes the solo-vs-client mode
+      # * disabled if there is no server_url or no output_locations to log to
+      # * enabled if there is a configured output_location even without a token
       # * disabled in solo mode if the user did not configure the auth token
-      # * disabled if `Chef::Config[:data_collector][:server_url]` is set to a
-      #   falsey value
+      #
+      # @return [Boolean] true if the data collector should be enabled
+      #
       def should_be_enabled?
         running_mode = Chef::Config[:solo] || Chef::Config[:local_mode] ? :solo : :client
         want_mode = Chef::Config[:data_collector][:mode]
@@ -281,23 +292,27 @@ class Chef
         case
         when Chef::Config[:why_run]
           Chef::Log.trace("data collector is disabled for why run mode")
-          false
+          return false
         when (want_mode != :both) && running_mode != want_mode
           Chef::Log.trace("data collector is configured to only run in #{Chef::Config[:data_collector][:mode]} modes, disabling it")
-          false
+          return false
         when !(Chef::Config[:data_collector][:server_url] || Chef::Config[:data_collector][:output_locations])
           Chef::Log.trace("Neither data collector URL or output locations have been configured, disabling data collector")
-          false
-        when running_mode == :solo && !Chef::Config[:data_collector][:token]
-          Chef::Log.trace("Data collector token must be configured to use Chef Automate data collector with Chef Solo")
-          false
+          return false
         when running_mode == :client && Chef::Config[:data_collector][:token]
           Chef::Log.warn("Data collector token authentication is not recommended for client-server mode. " \
                          "Please upgrade Chef Server to 12.11.0 and remove the token from your config file " \
                          "to use key based authentication instead")
-          true
+          return true
+        when !Chef::Config[:data_collector][:output_locations][:files].empty?
+          # we can run fine to a file without a token, even in solo mode.
+          return true
+        when running_mode == :solo && !Chef::Config[:data_collector][:token]
+          # we are in solo mode and are not logging to a file, so must have a token
+          Chef::Log.trace("Data collector token must be configured to use Chef Automate data collector with Chef Solo")
+          return false
         else
-          true
+          return true
         end
       end
 
